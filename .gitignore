@@ -1,0 +1,6 @@
+private_key.pem
+public_key.pem
+chat.properties
+eula.txt
+*.log
+*.json
