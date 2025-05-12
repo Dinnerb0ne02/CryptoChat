@@ -3,3 +3,5 @@
 *.txt
 *.log
 *.json
+.DS_Store
+room_config
