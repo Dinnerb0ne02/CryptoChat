@@ -109,12 +109,12 @@ class ChatApplication:
         }
         
         if not os.path.exists('chat.properties'):
-            with open('chat.properties', 'w') as f:
+            with open('chat.properties', 'w', encoding='utf-8') as f:
                 for key, value in default_config.items():
                     f.write(f"{key}={value}\n")
         
         self.config = {}
-        with open('chat.properties', 'r') as f:
+        with open('chat.properties', 'r', encoding='utf-8') as f:
             for line in f:
                 if '=' in line:
                     key, value = line.strip().split('=', 1)
@@ -149,7 +149,7 @@ class ChatApplication:
                     room_path = os.path.join(self.room_config_dir, filename)
                     try:
                         room_config = {}
-                        with open(room_path, 'r') as f:
+                        with open(room_path, 'r', encoding='utf-8') as f:
                             for line in f:
                                 if '=' in line:
                                     key, value = line.strip().split('=', 1)
@@ -158,7 +158,7 @@ class ChatApplication:
                         bans_json_dir = os.path.join(self.room_config_dir, f"{room_name}_bans.json")
                         password_hash_file = os.path.join(self.room_config_dir, f"{room_name}.hash")
                         if not os.path.exists(bans_json_dir):
-                            with open(bans_json_dir, 'w') as f:
+                            with open(bans_json_dir, 'w', encoding='utf-8') as f:
                                 json.dump({'ips': [], 'users': []}, f)
                         self.rooms[room_name] = {
                             'motd': room_config.get('motd', ''),
@@ -185,7 +185,7 @@ class ChatApplication:
         """Load Room Password Hash"""
         if os.path.exists(self.rooms[room_name]['password_hash_file']):
             try:
-                with open(self.rooms[room_name]['password_hash_file'], 'r') as f:
+                with open(self.rooms[room_name]['password_hash_file'], 'r', encoding='utf-8') as f:
                     self.rooms[room_name]['password_hash'] = f.read().strip()
             except Exception as e:
                 print(f"Failed to load room password hash for {room_name}: {e}")
@@ -193,7 +193,7 @@ class ChatApplication:
     def save_room_password_hash(self, room_name, password_hash):
         """Save Room Password Hash"""
         try:
-            with open(self.rooms[room_name]['password_hash_file'], 'w') as f:
+            with open(self.rooms[room_name]['password_hash_file'], 'w', encoding='utf-8') as f:
                 f.write(password_hash)
         except Exception as e:
             print(f"Failed to save room password hash for {room_name}: {e}")
@@ -201,7 +201,7 @@ class ChatApplication:
     def load_room_bans(self, room_name):
         """Load Bans for a specific room"""
         try:
-            with open(self.rooms[room_name]['bans_file'], 'r') as f:
+            with open(self.rooms[room_name]['bans_file'], 'r', encoding='utf-8') as f:
                 bans = json.load(f)
                 self.rooms[room_name]['bans']['ips'] = bans.get('ips', [])
                 self.rooms[room_name]['bans']['users'] = bans.get('users', [])
@@ -212,7 +212,7 @@ class ChatApplication:
     def save_room_bans(self, room_name):
         """Save Bans for a specific room"""
         try:
-            with open(self.rooms[room_name]['bans_file'], 'w') as f:
+            with open(self.rooms[room_name]['bans_file'], 'w', encoding='utf-8') as f:
                 json.dump(
                     {
                         'ips': self.rooms[room_name]['bans']['ips'],
@@ -654,7 +654,7 @@ users themselves to take on risks.
             print("Please open eula.txt and change 'eula=off' to 'eula=on' to accept the user agreement")
             sys.exit(0)
         
-        with open('eula.txt', 'r') as f:
+        with open('eula.txt', 'r', encoding='utf-8') as f:
             lines = f.readlines()
             if len(lines) < 2 or 'eula=on' not in lines[1]:
                 print("Please accept the user agreement: Open eula.txt and change 'eula=off' to 'eula=on'")
@@ -701,7 +701,7 @@ users themselves to take on risks.
         """Load Bans from JSON File"""
         if os.path.exists(self.bans_file):
             try:
-                with open(self.bans_file, 'r') as f:
+                with open(self.bans_file, 'r', encoding='utf-8') as f:
                     bans = json.load(f)
                     self.banned_ips = set(bans.get('ips', []))
                     self.banned_users = set(bans.get('users', []))
@@ -712,7 +712,7 @@ users themselves to take on risks.
     def save_bans(self):
         """Save Bans to JSON File"""
         try:
-            with open(self.bans_file, 'w') as f:
+            with open(self.bans_file, 'w', encoding='utf-8') as f:
                 json.dump({
                     'ips': list(self.banned_ips),
                     'users': list(self.banned_users)
@@ -1077,11 +1077,11 @@ users themselves to take on risks.
         password = ' '.join(args)
         if self.config['enable_hash']:
             hashed_password = self.hash_password_value(password)
-            with open('password.hash', 'w') as f:
+            with open('password.hash', 'w', encoding='utf-8') as f:
                 f.write(hashed_password)
             print("Password updated and hashed")
         else:
-            with open('password.txt', 'w') as f:
+            with open('password.txt', 'w', encoding='utf-8') as f:
                 f.write(password)
             print("Password updated")
 
@@ -1106,10 +1106,10 @@ users themselves to take on risks.
             return
         
         if os.path.exists('password.txt'):
-            with open('password.txt', 'r') as f:
+            with open('password.txt', 'r', encoding='utf-8') as f:
                 password = f.read().strip()
             hashed_password = self.hash_password_value(password)
-            with open('password.hash', 'w') as f:
+            with open('password.hash', 'w', encoding='utf-8') as f:
                 f.write(hashed_password)
             print("Password hashed")
         else:
@@ -1121,11 +1121,11 @@ users themselves to take on risks.
             return True
         
         if self.config['enable_hash'] and os.path.exists('password.hash'):
-            with open('password.hash', 'r') as f:
+            with open('password.hash', 'r', encoding='utf-8') as f:
                 hashed_password = f.read().strip()
             return self.hash_password_value(password) == hashed_password
         elif os.path.exists('password.txt'):
-            with open('password.txt', 'r') as f:
+            with open('password.txt', 'r', encoding='utf-8') as f:
                 stored_password = f.read().strip()
             return password == stored_password
         else:
@@ -1151,7 +1151,7 @@ users themselves to take on risks.
             print(f"Password for room {room_name} updated and hashed")
         else:
             self.rooms[room_name]['password'] = password
-            with open(os.path.join(self.room_config_dir, f"{room_name}.cfg"), 'a') as f:
+            with open(os.path.join(self.room_config_dir, f"{room_name}.cfg"), 'a', encoding='utf-8') as f:
                 f.write(f"password={password}\n")
             print(f"Password for room {room_name} updated")
 
@@ -1198,7 +1198,7 @@ users themselves to take on risks.
         
         filename = f"{formatted_utc_time}.{server_name.replace(':', '.')}.room{room_name}.txt"
         try:
-            with open(filename, 'w') as f:
+            with open(filename, 'w', encoding='utf-8') as f:
                 f.write(utc_time + "\n")
                 f.write(local_time + "\n")
                 f.write(server_info + "\n")
