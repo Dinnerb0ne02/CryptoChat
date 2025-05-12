@@ -1,6 +1,7 @@
-private_key.pem
-public_key.pem
-chat.properties
-eula.txt
+*.pem
+*.properties
+*.txt
 *.log
 *.json
+.DS_Store
+room_config
