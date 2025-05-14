@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) CyptoChat Dinnerb0ne<tomma_2022@outlook.com>
+# Copyright (C) CryptoChat Dinnerb0ne<tomma_2022@outlook.com>
 # date: 2023-10-01
 # version: 1.1.0
 # description: A simple chat application with encryption and room features.
@@ -12,7 +12,7 @@ import json
 import time
 import socket
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
 from Crypto.PublicKey import RSA, DSA, ECC
 import hashlib
 
@@ -106,7 +106,8 @@ class ChatApplication:
             'enable_hash': 'false',
             'hash_type': 'sha256',
             'enable_password': 'false',
-            'enable_autosave': 'false'
+            'enable_autosave': 'false',
+            'autosave_delay': '500'  # 默认自动保存延迟为500秒
         }
         
         if not os.path.exists('chat.properties'):
@@ -136,6 +137,7 @@ class ChatApplication:
         self.config['enable_hash'] = self.config['enable_hash'].lower() == 'true'
         self.config['enable_password'] = self.config['enable_password'].lower() == 'true'
         self.config['enable_autosave'] = self.config['enable_autosave'].lower() == 'true'
+        self.config['autosave_delay'] = int(self.config.get('autosave_delay', default_config['autosave_delay']))
 
     def load_rooms(self):
         """Load Room Configurations"""
@@ -238,6 +240,11 @@ class ChatApplication:
         server_thread = threading.Thread(target=self.server_input_loop, daemon=True)
         server_thread.start()
         
+        # 启动自动保存聊天记录的线程
+        if self.config['enable_autosave']:
+            autosave_thread = threading.Thread(target=self.auto_save_chat_history, daemon=True)
+            autosave_thread.start()
+        
         while True:
             client_socket, addr = self.server_socket.accept()
             if len(self.clients) >= self.config['max_users']:
@@ -268,8 +275,6 @@ class ChatApplication:
                 nickname = 'Unknown'
             room_name = client_info.get('room', None) if self.config['enable_rooms'] else None
             
-            # print(f"Received client info: {client_info}")  # Debug Only
-
             # Check if username is globally banned
             if nickname.lower() in self.banned_users:
                 try:
@@ -460,12 +465,12 @@ class ChatApplication:
 
     def auto_save_chat_history(self):
         """Automatically save chat history at regular intervals"""
-        save_interval = 300  # Save every 5 minutes (300 seconds)
+        save_interval = self.config['autosave_delay']
         while True:
             time.sleep(save_interval)
             self.save_chat_history()
 
-    def save_chat_history(self, args=None):
+    def save_chat_history(self):
         """Save Chat History"""
         if not self.chat_history:
             print("No chat history to save")
@@ -499,11 +504,6 @@ class ChatApplication:
                 if self.current_room and self.config['enable_rooms']:
                     room_password = input(f"Enter password for room {self.current_room} (leave blank if none): ")
             
-            # Start auto-save thread if enabled
-            if self.config['enable_autosave']:
-                autosave_thread = threading.Thread(target=self.auto_save_chat_history, daemon=True)
-                autosave_thread.start()
-                
             # Send client info to server
             client_info = {
                 'nickname': self.config['nickname'],
@@ -545,10 +545,6 @@ class ChatApplication:
             }).encode())
         elif cmd == 'exit':
             print("Exiting chat")
-            if self.config['enable_autosave']:
-                self.client_socket.send(json.dumps({
-                    'type': 'save'
-                }).encode())
             self.client_socket.close()
             sys.exit(0)
         elif cmd == 'help':
@@ -622,10 +618,10 @@ class ChatApplication:
                         print(message_data['formatted_message'])
                     else:
                         formatted_msg = self.format_message({
-                        'timestamp': timestamp,
-                        'nickname': nickname,
-                        'message': fetched_message
-                    })
+                            'timestamp': timestamp,
+                            'nickname': nickname,
+                            'message': fetched_message
+                        })
                         print(formatted_msg)
                     self.chat_history.append({
                         'timestamp': timestamp,
@@ -666,46 +662,42 @@ class ChatApplication:
         """Check User License Agreement"""
         if not os.path.exists('eula.txt'):
             with open('eula.txt', 'w', encoding='utf-8') as f:
-                f.write(f""""{datetime.now().isoformat()}\neula=off\n
-本软件按 “现状” 提供，不提供任何形式的明示或暗示的保证，
-包括但不限于对软件的适销性、特定用途适用性、准确性、完整性以及不侵犯第三方权利的保证。软件开发者、提供者
-及所有相关方均不对因软件使用或无法使用而导致的任何直接、间接、偶然、特殊及后续的损害承担责任，无论这些损
-害是否基于合同、侵权或任何其他法律理论，也不论是否已被告知发生此类损害的可能性。
-
-对于使用者因不当使用本软件而产生的一切法律后果，包括但不限于民事纠纷、行政处罚、刑事犯罪等，均由使用者自
-行承担全部责任，软件开发者、提供者及所有相关方概不负责。即使使用者的不当行为是基于软件存在的漏洞、缺陷或
-设计瑕疵，使用者仍需对其自身行为负责，但软件方将尽力及时修复漏洞、完善软件以降低风险。软件开发者、提供者
-及所有相关方不对任何第三方利用本软件从事违法犯罪活动或其他不当行为所产生的后果承担责任。使用者应自行判断
-聊天内容及其他用户行为的合法性与适当性，对于因信赖或使用其他用户提供的信息而遭受的损失，由使用者自行
-承担风险。
-
-This software is provided "as is" without any form of express or implied warranty,
-Including but not limited to warranties of merchantability, fitness for a particular purpose, 
-accuracy, completeness, and non infringement of third-party rights of the software. Software 
-developers and providers
-All parties involved shall not be liable for any direct, indirect, incidental, special, or 
-consequential damages arising from the use or inability to use the software, regardless of 
-the nature of such damages
-Whether the harm is based on contract, tort or any other legal theory, and regardless of 
-whether the possibility of such harm has been notified.
-
-All legal consequences arising from the improper use of this software by users, including but 
-not limited to civil disputes, administrative penalties, criminal offenses, etc., shall be 
-borne by the users themselves
-The company assumes full responsibility, and software developers, providers, and all related 
-parties are not responsible. Even if the user's inappropriate behavior is based on software 
-vulnerabilities, defects, or
-Design flaws still require users to take responsibility for their own actions, but the software 
-provider will make every effort to promptly fix vulnerabilities and improve the software to reduce 
-risks. Software developers and providers
-All relevant parties shall not be held responsible for any consequences arising from any 
-third party's use of this software for illegal or criminal activities or other improper behavior. 
-Users should make their own judgments
-The legality and appropriateness of chat content and other user behaviors, as well as any losses 
-incurred due to reliance on or use of information provided by other users, shall be borne by the 
-users themselves to take on risks.
-
-""")
+                f.write(f"{datetime.now().isoformat()}\neula=off\n"
+                        "本软件按 “现状” 提供，不提供任何形式的明示或暗示的保证，\n"
+                        "包括但不限于对软件的适销性、特定用途适用性、准确性、完整性以及不侵犯第三方权利的保证。软件开发者、提供者\n"
+                        "及所有相关方均不对因软件使用或无法使用而导致的任何直接、间接、偶然、特殊及后续的损害承担责任，无论这些损\n"
+                        "害是否基于合同、侵权或任何其他法律理论，也不论是否已被告知发生此类损害的可能性。\n"
+                        "对于使用者因不当使用本软件而产生的一切法律后果，包括但不限于民事纠纷、行政处罚、刑事犯罪等，均由使用者自\n"
+                        "行承担全部责任，软件开发者、提供者及所有相关方概不负责。即使使用者的不当行为是基于软件存在的漏洞、缺陷或\n"
+                        "设计瑕疵，使用者仍需对其自身行为负责，但软件方将尽力及时修复漏洞、完善软件以降低风险。软件开发者、提供者\n"
+                        "及所有相关方不对任何第三方利用本软件从事违法犯罪活动或其他不当行为所产生的后果承担责任。使用者应自行判断\n"
+                        "聊天内容及其他用户行为的合法性与适当性，对于因信赖或使用其他用户提供的信息而遭受的损失，由使用者自行\n"
+                        "承担风险。\n"
+                        "\n"
+                        "This software is provided \"as is\" without any form of express or implied warranty,\n"
+                        "including but not limited to warranties of merchantability, fitness for a particular purpose, \n"
+                        "accuracy, completeness, and non-infringement of third-party rights of the software. Software \n"
+                        "developers and providers\n"
+                        "all parties involved shall not be liable for any direct, indirect, incidental, special, or \n"
+                        "consequential damages arising from the use or inability to use the software, regardless of \n"
+                        "the nature of such damages\n"
+                        "whether the harm is based on contract, tort or any other legal theory, and regardless of \n"
+                        "whether the possibility of such harm has been notified.\n"
+                        "\n"
+                        "All legal consequences arising from the improper use of this software by users, including but \n"
+                        "not limited to civil disputes, administrative penalties, criminal offenses, etc., shall be \n"
+                        "borne by the users themselves, and software developers, providers, and all related \n"
+                        "parties are not responsible. Even if the user's inappropriate behavior is based on software \n"
+                        "vulnerabilities, defects, or\n"
+                        "design flaws still require users to take responsibility for their own actions, but the software \n"
+                        "provider will make every effort to promptly fix vulnerabilities and improve the software to reduce \n"
+                        "risks. Software developers and providers\n"
+                        "all relevant parties shall not be held responsible for any consequences arising from any \n"
+                        "third party's use of this software for illegal or criminal activities or other improper behavior. \n"
+                        "Users should make their own judgments\n"
+                        "the legality and appropriateness of chat content and other user behaviors, as well as any losses \n"
+                        "incurred due to reliance on or use of information provided by other users, shall be borne by the \n"
+                        "users themselves to take on risks.\n")
                 
 
             print("Please open eula.txt and change 'eula=off' to 'eula=on' to accept the user agreement")
@@ -1231,42 +1223,20 @@ users themselves to take on risks.
         formatted_time = timestamp.strftime("%m/%d %H:%M:%S")
         return f"{formatted_time} {message_data['nickname']}\n    {message_data['message']}"
 
-    def save_chat_history(self, args=None):
+    def save_chat_history(self):
         """Save Chat History"""
         if not self.chat_history:
             print("No chat history to save")
             return
         
         now = datetime.now()
-        # utc_time = now.utcnow().isoformat()
-        utc_time = datetime.now(timezone.utc).isoformat()
-        formatted_utc_time = now.strftime("%Y%m%d%H%M%S")
-        local_time = now.strftime("%m/%d %H:%M:%S")
-        server_name = self.config['ip']
-        server_port = self.config['port']
-        server_motd = self.config['motd']
-        server_info = f"server: {server_name}:{server_port}\tmotd: {server_motd}"
+        formatted_time = now.strftime("%Y%m%d%H%M%S")
+        filename = f"chat_history_{formatted_time}.txt"
         
-        for entry in self.chat_history:
-            room_name = entry['room'] if entry['room'] else 'public'
-            if room_name not in self.rooms:
-                room_info = f"room: {room_name}\troom_motd: Public chat"
-            else:
-                room_info = f"room: {room_name}\troom_motd: {self.rooms[room_name]['motd']}"
-        
-        filename = f"{formatted_utc_time}.{server_name.replace(':', '.')}.room{room_name}.txt"
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write(utc_time + "\n")
-                f.write(local_time + "\n")
-                f.write(server_info + "\n")
-                f.write(room_info + "\n")
-                f.write(f"server_ip: {self.config['ip']}\n\n\n")
-                
                 for entry in self.chat_history:
-                    f.write(entry['user'] + "\n")
-                    f.write(f"    {entry['message']}\n\n")
-            
+                    f.write(f"[{entry['timestamp']}] {entry['user']}: {entry['message']}\n")
             print(f"Chat history saved to {filename}")
         except Exception as e:
             print(f"Failed to save chat history: {e}")
