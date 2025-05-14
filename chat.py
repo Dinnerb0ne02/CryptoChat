@@ -27,12 +27,13 @@ import json
 import time
 import socket
 import threading
-from datetime import datetime
+from datetime import datetime, UTC
 from Crypto.PublicKey import RSA, DSA, ECC
 import hashlib
 
 class ChatApplication:
     def __init__(self):
+        self.server_alive = None
         self.check_eula()
         self.load_config()
         self.setup_crypto()
@@ -85,21 +86,29 @@ class ChatApplication:
     def stop_server(self, args):
         """Stop Server"""
         print("The server is shutting down...")
+
+        self.broadcast({
+            'type': 'system',
+            'message': f"Server shutting down...",
+            'timestamp': time.time()
+        })
+        self.server_alive = False
         if self.config['enable_autosave']:
             self.save_chat_history()
         self.save_bans()
         for room_name in self.rooms.keys():
             self.save_room_bans(room_name)
-        try:
-            self.server_socket.shutdown(socket.SHUT_RDWR)
-        except Exception as e:
-            print(f"Error shutting down server socket: {e}")
-        self.server_socket.close()
-        for addr, client in self.clients.items():
+        for addr, client in list(self.clients.items()):
             try:
-                client['socket'].close()
+                del self.clients[addr]
             except:
                 pass
+        #try:
+        #    self.server_socket.close()
+        #    self.server_socket.shutdown(socket.SHUT_RDWR)
+        #except Exception as e:
+        #    print(f"Error shutting down server socket: {e}")
+        #finally:
         print("Server stopped")
         sys.exit(0)
 
@@ -129,7 +138,7 @@ class ChatApplication:
             with open('chat.properties', 'w', encoding='utf-8') as f:
                 for key, value in default_config.items():
                     f.write(f"{key}={value}\n")
-        
+
         self.config = {}
         with open('chat.properties', 'r', encoding='utf-8') as f:
             for line in f:
@@ -244,6 +253,7 @@ class ChatApplication:
 
     def run_server(self):
         """Run the Server"""
+        self.server_alive = True
         self.clients = {}
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind((self.config['ip'], self.config['port']))
@@ -260,25 +270,32 @@ class ChatApplication:
             autosave_thread = threading.Thread(target=self.auto_save_chat_history, daemon=True)
             autosave_thread.start()
         
-        while True:
-            client_socket, addr = self.server_socket.accept()
-            if len(self.clients) >= self.config['max_users']:
-                try:
-                    client_socket.send(json.dumps({
-                        'type': 'system',
-                        'message': 'Server is full. Please try again later.',
-                        'timestamp': time.time()
-                    }).encode())
-                    client_socket.close()
-                    print(f"Rejected connection from {addr[0]}: Server is full")
-                    continue
-                except:
-                    client_socket.close()
-                    continue
-            
-            client_thread = threading.Thread(target=self.handle_client, args=(client_socket, addr))
-            client_thread.daemon = True
-            client_thread.start()
+        while self.server_alive:
+            try:
+                client_socket, addr = self.server_socket.accept()
+                if len(self.clients) >= self.config['max_users']:
+                    try:
+                        client_socket.send(json.dumps({
+                            'type': 'system',
+                            'message': 'Server is full. Please try again later.',
+                            'timestamp': time.time()
+                        }).encode())
+                        client_socket.close()
+                        print(f"Rejected connection from {addr[0]}: Server is full")
+                        continue
+                    except:
+                        client_socket.close()
+                        continue
+
+                client_thread = threading.Thread(target=self.handle_client, args=(client_socket, addr))
+                client_thread.daemon = True
+                client_thread.start()
+            except OSError as e:
+                if not self.server_alive:
+                    print("Server socket closed")
+                    break
+                else:
+                    raise e
 
     def handle_client(self, client_socket, addr):
         """Handle Client Connection"""
@@ -385,11 +402,11 @@ class ChatApplication:
                     'timestamp': time.time()
                 }, exclude=addr)
             
-            while True:
+            while self.server_alive:
                 data = client_socket.recv(4096)
                 if not data:
                     break
-                
+
                 message_data = json.loads(data.decode())
 
                 if 'message' not in message_data or 'timestamp' not in message_data:
@@ -407,7 +424,8 @@ class ChatApplication:
                     
                     # Add message to chat history
                     self.chat_history.append({
-                        'timestamp': datetime.utcfromtimestamp(message_data['timestamp']).isoformat(),
+                        #'timestamp': datetime.utcfromtimestamp(message_data['timestamp']).isoformat(), #DEPRECATED
+                        'timestamp': datetime.fromtimestamp(message_data['timestamp'], UTC).isoformat(),
                         'local_time': datetime.fromtimestamp(message_data['timestamp']).strftime("%m/%d %H:%M:%S"),
                         'user': nickname,
                         'message': message_data['message'],
@@ -677,7 +695,7 @@ class ChatApplication:
         """Check User License Agreement"""
         if not os.path.exists('eula.txt'):
             with open('eula.txt', 'w', encoding='utf-8') as f:
-                f.write(f"{datetime.now().isoformat()}\neula=off\n"
+                f.write(f"{datetime.now().isoformat()}\neula=false\n"
                         "本软件按 “现状” 提供，不提供任何形式的明示或暗示的保证，\n"
                         "包括但不限于对软件的适销性、特定用途适用性、准确性、完整性以及不侵犯第三方权利的保证。软件开发者、提供者\n"
                         "及所有相关方均不对因软件使用或无法使用而导致的任何直接、间接、偶然、特殊及后续的损害承担责任，无论这些损\n"
@@ -715,13 +733,13 @@ class ChatApplication:
                         "users themselves to take on risks.\n")
                 
 
-            print("Please open eula.txt and change 'eula=off' to 'eula=on' to accept the user agreement")
+            print("Please open eula.txt and change 'eula=false' to 'eula=true' to accept the user agreement")
             sys.exit(0)
         
         with open('eula.txt', 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            if len(lines) < 2 or 'eula=on' not in lines[1]:
-                print("Please accept the user agreement: Open eula.txt and change 'eula=off' to 'eula=on'")
+            if len(lines) < 2 or 'eula=true' not in lines[1]:
+                print("Please accept the user agreement: Open eula.txt and change 'eula=false' to 'eula=true'")
                 sys.exit(0)
 
 
@@ -845,7 +863,7 @@ class ChatApplication:
                         self.broadcast({'type': 'message', 'formatted_message': formatted_msg})
             except (EOFError, KeyboardInterrupt):
                 print("\nExiting admin console")
-                os._exit(0)
+                sys.exit(0)
             except Exception as e:
                 print(f"Error: {e}")
 
