@@ -12,7 +12,7 @@ import json
 import time
 import socket
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from Crypto.PublicKey import RSA, DSA, ECC
 import hashlib
 
@@ -55,6 +55,7 @@ class ChatApplication:
             self.run_server()
             self.start_admin_console()
         else:
+            self.chat_history = []  # Ensure chat history is initialized for the client
             self.run_client()
 
     def list_rooms(self, args):
@@ -262,9 +263,13 @@ class ChatApplication:
         try:
             data = client_socket.recv(4096)
             client_info = json.loads(data.decode())
-            nickname = client_info['nickname']
+            nickname = client_info.get('nickname', 'Unknown').strip()
+            if not nickname:
+                nickname = 'Unknown'
             room_name = client_info.get('room', None) if self.config['enable_rooms'] else None
             
+            # print(f"Received client info: {client_info}")  # Debug Only
+
             # Check if username is globally banned
             if nickname.lower() in self.banned_users:
                 try:
@@ -366,6 +371,11 @@ class ChatApplication:
                     break
                 
                 message_data = json.loads(data.decode())
+
+                if 'message' not in message_data or 'timestamp' not in message_data:
+                    print("Invalid message format: missing fields")
+                    return
+
                 if message_data['type'] == 'message':
                     broadcast_msg = {
                         'type': 'message',
@@ -448,6 +458,31 @@ class ChatApplication:
                 except ConnectionError:
                     del self.clients[addr]
 
+    def auto_save_chat_history(self):
+        """Automatically save chat history at regular intervals"""
+        save_interval = 300  # Save every 5 minutes (300 seconds)
+        while True:
+            time.sleep(save_interval)
+            self.save_chat_history()
+
+    def save_chat_history(self, args=None):
+        """Save Chat History"""
+        if not self.chat_history:
+            print("No chat history to save")
+            return
+        
+        now = datetime.now()
+        formatted_time = now.strftime("%Y%m%d%H%M%S")
+        filename = f"chat_history_{formatted_time}.txt"
+        
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                for entry in self.chat_history:
+                    f.write(f"[{entry['timestamp']}] {entry['user']}: {entry['message']}\n")
+            print(f"Chat history saved to {filename}")
+        except Exception as e:
+            print(f"Failed to save chat history: {e}")
+
     def run_client(self):
         """Run Client"""
         print(f"Connecting to server {self.config['ip']}:{self.config['port']}")
@@ -464,6 +499,12 @@ class ChatApplication:
                 if self.current_room and self.config['enable_rooms']:
                     room_password = input(f"Enter password for room {self.current_room} (leave blank if none): ")
             
+            # Start auto-save thread if enabled
+            if self.config['enable_autosave']:
+                autosave_thread = threading.Thread(target=self.auto_save_chat_history, daemon=True)
+                autosave_thread.start()
+                
+            # Send client info to server
             client_info = {
                 'nickname': self.config['nickname'],
                 'public_key': self.public_key.decode(),
@@ -569,26 +610,42 @@ class ChatApplication:
                     print("Disconnected from server")
                     sys.exit(0)
                 
-                message = json.loads(data.decode())
-                if message['type'] == 'message':
-                    room = message.get('room', 'public')
-                    if 'formatted_message' in message:
-                        print(message['formatted_message'])
+                message_data = json.loads(data.decode())
+
+                if message_data['type'] == 'message':
+                    timestamp = message_data.get('timestamp', time.time())
+                    nickname = message_data.get('nickname', 'Unknown')
+                    fetched_message = message_data.get('message', '')
+                    local_time = datetime.fromtimestamp(timestamp).strftime("%m/%d %H:%M:%S")
+                    room_name = message_data.get('room', 'public')
+                    if 'formatted_message' in message_data:
+                        print(message_data['formatted_message'])
                     else:
-                        formatted_msg = self.format_message(message)
+                        formatted_msg = self.format_message({
+                        'timestamp': timestamp,
+                        'nickname': nickname,
+                        'message': fetched_message
+                    })
                         print(formatted_msg)
-                elif message['type'] == 'system':
-                    room = message.get('room', 'public')
-                    print(f"[{room}] [System] {message['message']}")
-                elif message['type'] == 'pong':
-                    print(f"Server latency: {(time.time() - message['timestamp']) * 1000:.2f}ms")
-                elif message['type'] == 'online':
-                    nicknames = ', '.join(message['nicknames'])
-                    print(f"Online users: {nicknames} (Total: {message['count']} people)")
-                elif message['type'] == 'join':
-                    self.current_room = message['room']
+                    self.chat_history.append({
+                        'timestamp': timestamp,
+                        'local_time': local_time,
+                        'user': nickname,
+                        'message': fetched_message,
+                        'room': message_data.get('room', 'public')
+                    })
+                elif message_data['type'] == 'system':
+                    room_name = message_data.get('room', 'public')
+                    print(f"[{room_name}] [System] {message_data['message']}")
+                elif message_data['type'] == 'pong':
+                    print(f"Server latency: {(time.time() - message_data['timestamp']) * 1000:.2f}ms")
+                elif message_data['type'] == 'online':
+                    nicknames = ', '.join(message_data['nicknames'])
+                    print(f"Online users: {nicknames} (Total: {message_data['count']} people)")
+                elif message_data['type'] == 'join':
+                    self.current_room = message_data['room']
                     print(f"Joined room: {self.current_room}")
-                elif message['type'] == 'save':
+                elif message_data['type'] == 'save':
                     self.save_chat_history()
                     print("Chat history saved")
             
@@ -1168,11 +1225,11 @@ users themselves to take on risks.
         else:
             return password == self.rooms[room_name]['password']
 
-    def format_message(self, message):
+    def format_message(self, message_data):
         """Format message with timestamp"""
-        timestamp = datetime.fromtimestamp(message['timestamp'])
+        timestamp = datetime.fromtimestamp(message_data['timestamp'])
         formatted_time = timestamp.strftime("%m/%d %H:%M:%S")
-        return f"{formatted_time} {message['nickname']}\n    {message['message']}"
+        return f"{formatted_time} {message_data['nickname']}\n    {message_data['message']}"
 
     def save_chat_history(self, args=None):
         """Save Chat History"""
@@ -1181,7 +1238,8 @@ users themselves to take on risks.
             return
         
         now = datetime.now()
-        utc_time = now.utcnow().isoformat()
+        # utc_time = now.utcnow().isoformat()
+        utc_time = datetime.now(timezone.utc).isoformat()
         formatted_utc_time = now.strftime("%Y%m%d%H%M%S")
         local_time = now.strftime("%m/%d %H:%M:%S")
         server_name = self.config['ip']
